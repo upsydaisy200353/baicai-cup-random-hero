@@ -46,8 +46,44 @@ const TEAMS = [
   },
 ];
 
-const champions = window.CHAMPIONS || [];
-const championMap = Object.fromEntries(champions.map((c) => [c.id, c]));
+let champions = [...(window.CHAMPIONS || [])];
+let championMap = Object.fromEntries(champions.map((c) => [c.id, c]));
+
+async function loadChampions() {
+  if (champions.length) return champions.length;
+
+  if (window.CHAMPIONS?.length) {
+    champions = window.CHAMPIONS;
+  } else {
+    try {
+      const res = await fetch("data/champions.json");
+      if (res.ok) {
+        const data = await res.json();
+        champions = data.champions.map((c) => ({
+          id: c.id,
+          name_zh: c.name_zh,
+          title_zh: c.title_zh,
+          splash_key: c.splash_key,
+          splash_url: c.splash_url,
+        }));
+      }
+    } catch (err) {
+      console.error("加载英雄数据失败:", err);
+    }
+  }
+
+  championMap = Object.fromEntries(champions.map((c) => [c.id, c]));
+  return champions.length;
+}
+
+function showChampionLoadError() {
+  const banner = document.createElement("div");
+  banner.style.cssText =
+    "position:fixed;top:0;left:0;right:0;z-index:9999;background:#7f1d1d;color:#fff;padding:12px;text-align:center;font-size:14px";
+  banner.textContent =
+    "英雄数据加载失败，请强制刷新页面（Ctrl+F5）。若仍失败，请稍等部署完成后再试。";
+  document.body.prepend(banner);
+}
 
 let sessions = loadSessions();
 let currentSessionId = sessions[0]?.id || null;
@@ -445,6 +481,11 @@ function rollHeroes() {
   const picker = getCurrentPicker(session);
   if (!session || !picker) return;
 
+  if (!champions.length) {
+    alert("英雄数据尚未加载，请刷新页面后重试");
+    return;
+  }
+
   const used = getUsedHeroIds(session);
   if (used.length > champions.length - 3) {
     alert("可用英雄不足，无法继续随机");
@@ -639,7 +680,10 @@ function renderSetup() {
   renderTeamsGrid();
 }
 
-function init() {
+async function init() {
+  const count = await loadChampions();
+  if (!count) showChampionLoadError();
+
   if (!sessions.length) createSession();
 
   renderSessionSelect();

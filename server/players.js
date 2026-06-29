@@ -39,11 +39,19 @@ function findAccount(name) {
   return ROSTER.find((p) => p.name === name) || null;
 }
 
-function verifyPassword(name, password) {
-  const adminPass = process.env.ADMIN_PASSWORD || "baicai2024";
-  const playerPass = process.env.PLAYER_PASSWORD || "123456";
-  if (name === ADMIN_ACCOUNT.name) return password === adminPass;
-  return findAccount(name) && password === playerPass;
+function findLoginAccount(name) {
+  if (name === ADMIN_ACCOUNT.name) return { ...ADMIN_ACCOUNT };
+  const player = findAccount(name);
+  if (!player) return null;
+  return { ...player, role: "player" };
 }
 
-module.exports = { TEAMS, ROSTER, ADMIN_ACCOUNT, getAllAccounts, findAccount, verifyPassword, getTeamPlayers };
+module.exports = {
+  TEAMS,
+  ROSTER,
+  ADMIN_ACCOUNT,
+  getAllAccounts,
+  findAccount,
+  findLoginAccount,
+  getTeamPlayers,
+};

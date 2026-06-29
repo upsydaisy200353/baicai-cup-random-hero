@@ -65,13 +65,7 @@ function getUser(token) {
 
 function resetDraftState() {
   state.drafts = {};
-  if (state.match) {
-    state.match.bench = { blue: [], red: [] };
-    state.match.pickedGlobally = [];
-    state.match.startedAt = null;
-    state.match.completedAt = null;
-  }
-  persist();
+  state.history = state.history || [];
 }
 
 module.exports = { state, loadPersisted, persist, createToken, getUser, resetDraftState };

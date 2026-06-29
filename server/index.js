@@ -3,23 +3,17 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 
-const { TEAMS, getAllAccounts, findAccount, verifyPassword, getTeamPlayers } = require("./players");
-const {
-  state,
-  loadPersisted,
-  persist,
-  createToken,
-  getUser,
-  resetDraftState,
-} = require("./store");
+const { TEAMS, findLoginAccount, getTeamPlayers } = require("./players");
+const { state, loadPersisted, persist, createToken, getUser, resetDraftState } = require("./store");
 const {
   buildSides,
   isInMatch,
   initPlayerDraft,
-  rollForPlayer,
-  confirmPick,
-  pickFromBench,
-  allParticipantsDone,
+  generateTeamPools,
+  startDraftTimer,
+  pickHero,
+  requestSwap,
+  respondSwap,
   buildPublicState,
 } = require("./draft");
 
@@ -59,7 +53,7 @@ function adminOnly(req, res, next) {
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, champions: champions.length });
+  res.json({ ok: true, champions: champions.length, version: 3 });
 });
 
 app.get("/api/roster", (_req, res) => {
@@ -70,19 +64,17 @@ app.get("/api/roster", (_req, res) => {
       skill: t.skill,
       players: getTeamPlayers(t),
     })),
-    totalPlayers: getAllAccounts().filter((a) => a.role === "player").length,
+    totalPlayers: 30,
   });
 });
 
 app.post("/api/login", (req, res) => {
-  const { name, password } = req.body || {};
-  if (!name || !password) return res.status(400).json({ error: "请输入昵称和密码" });
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: "请选择昵称" });
 
-  if (!verifyPassword(name, password)) {
-    return res.status(401).json({ error: "昵称或密码错误" });
-  }
+  const account = findLoginAccount(name);
+  if (!account) return res.status(400).json({ error: "昵称不在名单中" });
 
-  const account = name === "管理员" ? { name: "管理员", role: "admin" } : findAccount(name);
   const token = createToken(account);
   res.json({
     token,
@@ -124,26 +116,32 @@ app.post("/api/admin/match", auth, adminOnly, (req, res) => {
     teamB: Number(teamB),
     sides: { blue: sides.blue, red: sides.red },
     labels: sides.labels,
-    bench: { blue: [], red: [] },
-    pickedGlobally: [],
+    teamPools: { blue: [], red: [] },
+    swapRequests: [],
     createdAt: new Date().toISOString(),
     startedAt: null,
     completedAt: null,
+    timerEndsAt: null,
+    timerDuration: 120,
   };
 
   state.drafts = {};
   [...sides.blue, ...sides.red].forEach((p) => {
-    state.drafts[p.name] = initPlayerDraft(p.name);
+    state.drafts[p.name] = initPlayerDraft();
   });
 
   persist();
-  res.json({ ok: true, match: state.match });
+  res.json({ ok: true });
 });
 
 app.post("/api/admin/match/start", auth, adminOnly, (req, res) => {
   if (!state.match) return res.status(400).json({ error: "请先创建对阵" });
-  state.match.status = "drafting";
-  state.match.startedAt = new Date().toISOString();
+
+  const pools = generateTeamPools(champions);
+  if (!pools) return res.status(400).json({ error: "英雄数据不足" });
+
+  state.match.teamPools = pools;
+  startDraftTimer(state.match);
   persist();
   res.json({ ok: true });
 });
@@ -151,86 +149,48 @@ app.post("/api/admin/match/start", auth, adminOnly, (req, res) => {
 app.post("/api/admin/match/reset", auth, adminOnly, (_req, res) => {
   state.match = null;
   resetDraftState();
-  res.json({ ok: true });
-});
-
-app.post("/api/draft/roll", auth, (req, res) => {
-  if (!state.match || state.match.status !== "drafting") {
-    return res.status(400).json({ error: "当前未开放选英雄" });
-  }
-  if (!isInMatch(state.match, req.user.name)) {
-    return res.status(403).json({ error: "你不在这场比赛的 10 人名单中" });
-  }
-
-  if (!state.drafts[req.user.name]) {
-    state.drafts[req.user.name] = initPlayerDraft(req.user.name);
-  }
-
-  const result = rollForPlayer(state.match, state.drafts, champions, req.user.name);
-  if (result.error) return res.status(400).json({ error: result.error });
-
   persist();
-  res.json(buildPublicState(state.match, state.drafts, champions, req.user));
+  res.json({ ok: true });
 });
 
 app.post("/api/draft/pick", auth, (req, res) => {
   const { heroId } = req.body || {};
   if (!heroId) return res.status(400).json({ error: "请选择英雄" });
-  if (!state.match || state.match.status !== "drafting") {
-    return res.status(400).json({ error: "当前未开放选英雄" });
-  }
+  if (!state.match) return res.status(400).json({ error: "当前无对阵" });
 
-  const result = confirmPick(state.match, state.drafts, req.user.name, heroId);
+  const result = pickHero(state.match, state.drafts, req.user.name, heroId);
   if (result.error) return res.status(400).json({ error: result.error });
-
-  if (allParticipantsDone(state.match, state.drafts)) {
-    state.match.status = "complete";
-    state.match.completedAt = new Date().toISOString();
-    state.history.unshift({
-      id: state.match.id,
-      completedAt: state.match.completedAt,
-      teamA: state.match.teamA,
-      teamB: state.match.teamB,
-      labels: state.match.labels,
-      picks: { ...state.drafts },
-    });
-  }
 
   persist();
   res.json(buildPublicState(state.match, state.drafts, champions, req.user));
 });
 
-app.post("/api/draft/pick-bench", auth, (req, res) => {
-  const { heroId } = req.body || {};
-  if (!heroId) return res.status(400).json({ error: "请选择英雄" });
-  if (!state.match || state.match.status !== "drafting") {
-    return res.status(400).json({ error: "当前未开放选英雄" });
-  }
+app.post("/api/draft/swap-request", auth, (req, res) => {
+  const { toPlayer } = req.body || {};
+  if (!toPlayer) return res.status(400).json({ error: "请指定交换对象" });
+  if (!state.match) return res.status(400).json({ error: "当前无对阵" });
 
-  const result = pickFromBench(state.match, state.drafts, req.user.name, heroId);
+  const result = requestSwap(state.match, state.drafts, req.user.name, toPlayer);
   if (result.error) return res.status(400).json({ error: result.error });
 
-  if (allParticipantsDone(state.match, state.drafts)) {
-    state.match.status = "complete";
-    state.match.completedAt = new Date().toISOString();
-    state.history.unshift({
-      id: state.match.id,
-      completedAt: state.match.completedAt,
-      teamA: state.match.teamA,
-      teamB: state.match.teamB,
-      labels: state.match.labels,
-      picks: { ...state.drafts },
-    });
-  }
+  persist();
+  res.json(buildPublicState(state.match, state.drafts, champions, req.user));
+});
+
+app.post("/api/draft/swap-respond", auth, (req, res) => {
+  const { requestId, accept } = req.body || {};
+  if (!requestId) return res.status(400).json({ error: "无效请求" });
+  if (!state.match) return res.status(400).json({ error: "当前无对阵" });
+
+  const result = respondSwap(state.match, state.drafts, req.user.name, requestId, !!accept);
+  if (result.error) return res.status(400).json({ error: result.error });
 
   persist();
   res.json(buildPublicState(state.match, state.drafts, champions, req.user));
 });
 
 app.get("/api/history", auth, (req, res) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ error: "需要管理员权限" });
-  }
+  if (req.user.role !== "admin") return res.status(403).json({ error: "需要管理员权限" });
   res.json({ history: state.history });
 });
 
@@ -254,5 +214,5 @@ loadPersisted();
 loadChampions();
 
 app.listen(PORT, () => {
-  console.log(`白菜杯随机英雄服务运行于 http://localhost:${PORT}`);
+  console.log(`白菜杯随机英雄 v3 运行于 http://localhost:${PORT}`);
 });

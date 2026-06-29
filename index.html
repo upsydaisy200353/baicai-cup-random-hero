@@ -7,27 +7,22 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-  <!-- 登录 -->
   <div id="view-login" class="view">
     <div class="login-card">
       <h1>白菜杯 · 随机英雄</h1>
-      <p class="subtitle">30 人登录 · 10 人同时选英雄 · 极地大乱斗规则</p>
+      <p class="subtitle">选择昵称直接登录 · 每队 15 英雄池 · 120 秒选将</p>
       <form id="login-form">
         <label>选择昵称</label>
         <select id="login-name" required></select>
-        <label>密码</label>
-        <input type="password" id="login-password" placeholder="默认 123456" autocomplete="current-password">
-        <p class="login-hint">队员默认密码 <code>123456</code> · 管理员密码 <code>baicai2024</code></p>
         <div id="backend-warn" class="backend-warn hidden">
-          后端未连接：本地请 <code>npm start</code>；线上 Render 需使用 <strong>Web Service</strong>（不能用 Static Site）
+          后端未连接：本地请 <code>npm start</code>；Render 需使用 <strong>Web Service</strong>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">登录</button>
+        <button type="submit" class="btn btn-primary btn-block">进入</button>
       </form>
       <p id="login-error" class="error-text hidden"></p>
     </div>
   </div>
 
-  <!-- 主界面 -->
   <div id="view-app" class="view hidden">
     <header class="header">
       <div class="header-inner">
@@ -40,87 +35,68 @@
       </div>
     </header>
 
-    <!-- 管理员 -->
     <main id="admin-main" class="main hidden">
       <section class="panel active">
         <div class="panel-toolbar">
           <h2>管理员 · 对阵控制</h2>
           <div class="session-actions">
             <button id="btn-admin-create" class="btn btn-primary">创建对阵</button>
-            <button id="btn-admin-start" class="btn btn-secondary">开始选英雄</button>
+            <button id="btn-admin-start" class="btn btn-secondary">开始选英雄 (120s)</button>
             <button id="btn-admin-reset" class="btn btn-ghost">重置场次</button>
           </div>
         </div>
         <div class="matchup-bar">
-          <div class="matchup-select">
-            <label>A 队</label>
-            <select id="admin-team-a"></select>
-          </div>
+          <div class="matchup-select"><label>A 队</label><select id="admin-team-a"></select></div>
           <span class="matchup-vs">VS</span>
-          <div class="matchup-select">
-            <label>B 队</label>
-            <select id="admin-team-b"></select>
-          </div>
+          <div class="matchup-select"><label>B 队</label><select id="admin-team-b"></select></div>
         </div>
         <div class="teams-grid" id="admin-teams-grid"></div>
         <div id="admin-match-status" class="status-bar"></div>
+        <div id="admin-timer" class="timer-bar hidden"></div>
         <div id="admin-live-board" class="live-board hidden"></div>
       </section>
     </main>
 
-    <!-- 队员 -->
     <main id="player-main" class="main hidden">
       <div id="player-waiting" class="wait-card hidden">
         <h2>等待管理员开始</h2>
-        <p>对阵创建并开始选英雄后，你可以与队友同时选英雄。</p>
+        <p>对阵开始后，你将从本方 15 个英雄池中选将。</p>
       </div>
-
       <div id="player-not-in-match" class="wait-card hidden">
         <h2>本场未上场</h2>
-        <p>你不在当前 10 人对阵名单中，可在管理员处查看进度。</p>
+        <p>你不在当前 10 人对阵名单中。</p>
       </div>
 
-      <div id="player-draft" class="draft-layout hidden">
-        <aside class="draft-sidebar">
-          <h3>本方队友 <span class="hint">（可见选将）</span></h3>
-          <ul id="teammates-list" class="teammates-list"></ul>
+      <div id="player-draft" class="hidden">
+        <div id="timer-display" class="timer-display hidden">
+          <span class="timer-label">选英雄倒计时</span>
+          <span id="timer-seconds" class="timer-seconds">120</span>
+        </div>
 
-          <h3>本方待选池 <span class="hint">（ARAM）</span></h3>
-          <p class="sidebar-desc">队友确认选将后，未选的 2 个英雄会进入此处，你可直接选用。</p>
-          <div id="team-bench" class="bench-grid"></div>
+        <div id="swap-incoming" class="swap-panel hidden"></div>
 
-          <h3>敌方 <span class="hint">（选完才公开）</span></h3>
-          <ul id="enemies-list" class="teammates-list enemies"></ul>
-        </aside>
+        <div class="draft-layout">
+          <aside class="draft-sidebar">
+            <h3>本方队友</h3>
+            <ul id="teammates-list" class="teammates-list"></ul>
+            <h3>敌方选手 <span class="hint">（可发起交换）</span></h3>
+            <ul id="enemies-list" class="teammates-list enemies"></ul>
+            <h3>待选池 <span class="hint">（未被选用的英雄）</span></h3>
+            <div id="waiting-pool" class="bench-grid"></div>
+          </aside>
 
-        <div class="draft-main">
-          <div id="draft-rules" class="rules-box">
-            <strong>大乱斗规则：</strong>同时选将 · 每人随机 3 选 1 · 全服英雄不重复 · 未选 2 个进本方待选池 · 仅可见队友选将
-          </div>
-
-          <div id="self-status" class="self-status"></div>
-
-          <div id="phase-roll" class="draft-phase">
-            <button id="btn-roll" class="btn btn-primary btn-lg">随机 3 个英雄</button>
-            <p class="pick-hint">可多次随机，确认选将前不会进入待选池</p>
-          </div>
-
-          <div id="phase-pick" class="draft-phase hidden">
-            <p class="pick-hint">确认选将后，另外 2 个会进入队友待选池</p>
-            <div id="hero-options" class="hero-options"></div>
-          </div>
-
-          <div id="phase-done" class="draft-phase hidden">
-            <div class="draft-complete">
-              <h2>你已选完英雄！</h2>
-              <div id="self-pick-summary"></div>
-              <p class="pick-hint">等待其他选手完成，全员完成后公开敌方选将。</p>
+          <div class="draft-main">
+            <div class="rules-box">
+              <strong>规则：</strong>每队 15 英雄不重复 · 从本方池内选将 · 120 秒内可替换 · 与敌方协商交换
             </div>
-          </div>
-
-          <div id="phase-complete" class="draft-phase hidden">
-            <div class="draft-complete">
-              <h2>全员选将完成</h2>
+            <div id="my-pick-section" class="my-pick-section hidden">
+              <h3>我的英雄</h3>
+              <div id="my-pick-card"></div>
+            </div>
+            <h3>本方英雄池（15）</h3>
+            <div id="team-pool" class="hero-pool-grid"></div>
+            <div id="phase-complete" class="draft-phase hidden">
+              <h2>选将结束</h2>
               <div id="final-summary" class="draft-summary"></div>
             </div>
           </div>

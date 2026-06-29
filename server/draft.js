@@ -1,4 +1,8 @@
+const crypto = require("crypto");
 const { TEAMS, getTeamPlayers } = require("./players");
+
+const POOL_SIZE = 15;
+const TIMER_SECONDS = 120;
 
 function getTeamByNo(no) {
   return TEAMS.find((t) => t.no === no) || null;
@@ -25,11 +29,6 @@ function isInMatch(match, playerName) {
   return !!getSideForPlayer(match, playerName);
 }
 
-function getAvailablePool(match, champions) {
-  const used = new Set(match.pickedGlobally || []);
-  return champions.filter((c) => !used.has(c.id));
-}
-
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -39,145 +38,222 @@ function shuffle(arr) {
   return a;
 }
 
-function rollOffer(match, champions, count = 3) {
-  const pool = getAvailablePool(match, champions);
-  if (pool.length < count) return null;
-  return shuffle(pool)
-    .slice(0, count)
-    .map((c) => c.id);
-}
-
-function initPlayerDraft(name) {
+function generateTeamPools(champions) {
+  const ids = shuffle(champions.map((c) => c.id));
+  if (ids.length < POOL_SIZE * 2) return null;
   return {
-    status: "idle",
-    offered: [],
-    selected: null,
-    rollCount: 0,
-    pickedAt: null,
-    lastRolledAt: null,
+    blue: ids.slice(0, POOL_SIZE),
+    red: ids.slice(POOL_SIZE, POOL_SIZE * 2),
   };
 }
 
-/** 确认选择：未选中的 2 个进入本方待选池（ARAM 队友可抢） */
-function confirmPick(match, drafts, playerName, heroId) {
-  const draft = drafts[playerName];
-  if (!draft || draft.status !== "offered") {
-    return { error: "当前没有可确认的英雄，请先随机" };
+function initPlayerDraft() {
+  return { selected: null, pickedAt: null };
+}
+
+function getSidePlayerNames(match, side) {
+  return match.sides[side].map((p) => p.name);
+}
+
+function getHeroOwner(match, drafts, side, heroId, excludePlayer = null) {
+  for (const name of getSidePlayerNames(match, side)) {
+    if (name === excludePlayer) continue;
+    if (drafts[name]?.selected === heroId) return name;
   }
-  if (!draft.offered.includes(heroId)) {
-    return { error: "只能从本次随机结果中选择" };
+  return null;
+}
+
+function getWaitingPool(match, drafts, side) {
+  const pool = match.teamPools?.[side] || [];
+  return pool.filter((heroId) => !getHeroOwner(match, drafts, side, heroId));
+}
+
+function isTimerActive(match) {
+  if (match.status !== "drafting" || !match.timerEndsAt) return false;
+  return Date.now() < new Date(match.timerEndsAt).getTime();
+}
+
+function getTimerRemaining(match) {
+  if (!match.timerEndsAt) return 0;
+  return Math.max(0, Math.ceil((new Date(match.timerEndsAt).getTime() - Date.now()) / 1000));
+}
+
+function expireTimerIfNeeded(match) {
+  if (match.status === "drafting" && !isTimerActive(match)) {
+    match.status = "complete";
+    match.completedAt = new Date().toISOString();
+    return true;
   }
-  if ((match.pickedGlobally || []).includes(heroId)) {
-    return { error: "该英雄已被选用" };
-  }
+  return false;
+}
+
+function startDraftTimer(match) {
+  match.timerDuration = TIMER_SECONDS;
+  match.timerEndsAt = new Date(Date.now() + TIMER_SECONDS * 1000).toISOString();
+  match.status = "drafting";
+  match.startedAt = new Date().toISOString();
+  match.swapRequests = match.swapRequests || [];
+}
+
+function pickHero(match, drafts, playerName, heroId) {
+  if (!isTimerActive(match)) return { error: "选英雄时间已结束" };
 
   const side = getSideForPlayer(match, playerName);
   if (!side) return { error: "你不在这场比赛的 10 人名单中" };
 
-  const toBench = draft.offered.filter((id) => id !== heroId);
-  match.bench[side].push(
-    ...toBench.map((id) => ({
-      heroId: id,
-      fromPlayer: playerName,
-      addedAt: new Date().toISOString(),
-    }))
+  if (!match.teamPools[side].includes(heroId)) {
+    return { error: "该英雄不在本方英雄池内" };
+  }
+
+  const owner = getHeroOwner(match, drafts, side, heroId, playerName);
+  if (owner) return { error: `该英雄已被队友 ${owner} 选用` };
+
+  if (!drafts[playerName]) drafts[playerName] = initPlayerDraft();
+  drafts[playerName].selected = heroId;
+  drafts[playerName].pickedAt = new Date().toISOString();
+
+  return { ok: true };
+}
+
+function requestSwap(match, drafts, fromPlayer, toPlayer) {
+  if (!isTimerActive(match)) return { error: "选英雄时间已结束" };
+
+  const fromSide = getSideForPlayer(match, fromPlayer);
+  const toSide = getSideForPlayer(match, toPlayer);
+  if (!fromSide || !toSide) return { error: "玩家不在本场名单中" };
+  if (fromSide === toSide) return { error: "只能与敌方选手交换英雄" };
+
+  const fromDraft = drafts[fromPlayer];
+  const toDraft = drafts[toPlayer];
+  if (!fromDraft?.selected) return { error: "你还未选择英雄" };
+  if (!toDraft?.selected) return { error: "对方还未选择英雄" };
+
+  const pending = (match.swapRequests || []).find(
+    (r) => r.status === "pending" && r.from === fromPlayer && r.to === toPlayer
   );
+  if (pending) return { error: "已向对方发送交换请求，请等待回应" };
 
-  draft.selected = heroId;
-  draft.status = "done";
-  draft.offered = [];
-  draft.pickedAt = new Date().toISOString();
-  match.pickedGlobally.push(heroId);
+  const req = {
+    id: crypto.randomUUID(),
+    from: fromPlayer,
+    to: toPlayer,
+    fromHeroId: fromDraft.selected,
+    toHeroId: toDraft.selected,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  match.swapRequests.push(req);
+  return { ok: true, request: req };
+}
 
+function respondSwap(match, drafts, playerName, requestId, accept) {
+  if (!isTimerActive(match)) return { error: "选英雄时间已结束" };
+
+  const req = (match.swapRequests || []).find((r) => r.id === requestId);
+  if (!req || req.to !== playerName) return { error: "交换请求不存在" };
+  if (req.status !== "pending") return { error: "该请求已处理" };
+
+  if (!accept) {
+    req.status = "declined";
+    req.resolvedAt = new Date().toISOString();
+    return { ok: true };
+  }
+
+  const fromDraft = drafts[req.from];
+  const toDraft = drafts[req.to];
+  if (fromDraft?.selected !== req.fromHeroId || toDraft?.selected !== req.toHeroId) {
+    req.status = "declined";
+    req.resolvedAt = new Date().toISOString();
+    return { error: "英雄已变更，交换失败" };
+  }
+
+  const tmp = fromDraft.selected;
+  fromDraft.selected = toDraft.selected;
+  toDraft.selected = tmp;
+  fromDraft.pickedAt = new Date().toISOString();
+  toDraft.pickedAt = new Date().toISOString();
+
+  req.status = "accepted";
+  req.resolvedAt = new Date().toISOString();
   return { ok: true };
 }
 
-/** 从本方待选池直接选用（不消耗随机次数） */
-function pickFromBench(match, drafts, playerName, heroId) {
-  const draft = drafts[playerName];
-  if (!draft || draft.status === "done") {
-    return { error: "你已经选完英雄了" };
-  }
-  const side = getSideForPlayer(match, playerName);
-  if (!side) return { error: "你不在这场比赛的 10 人名单中" };
-
-  const idx = match.bench[side].findIndex((b) => b.heroId === heroId);
-  if (idx < 0) return { error: "待选池中没有该英雄" };
-  if ((match.pickedGlobally || []).includes(heroId)) {
-    return { error: "该英雄已被选用" };
-  }
-
-  match.bench[side].splice(idx, 1);
-  draft.selected = heroId;
-  draft.status = "done";
-  draft.offered = [];
-  draft.pickedAt = new Date().toISOString();
-  match.pickedGlobally.push(heroId);
-
-  return { ok: true };
-}
-
-function rollForPlayer(match, drafts, champions, playerName) {
-  const draft = drafts[playerName];
-  if (!draft) return { error: "未加入选英雄" };
-  if (draft.status === "done") return { error: "你已经选完英雄了" };
-
-  const offered = rollOffer(match, champions);
-  if (!offered) return { error: "可用英雄不足，无法继续随机" };
-
-  draft.offered = offered;
-  draft.status = "offered";
-  draft.rollCount += 1;
-  draft.lastRolledAt = new Date().toISOString();
-
-  return { ok: true, offered };
-}
-
-function allParticipantsDone(match, drafts) {
+function allParticipantsPicked(match, drafts) {
   const names = [...match.sides.blue, ...match.sides.red].map((p) => p.name);
-  return names.every((n) => drafts[n]?.status === "done");
+  return names.every((n) => drafts[n]?.selected);
 }
 
 function buildPublicState(match, drafts, champions, viewer) {
+  expireTimerIfNeeded(match);
+
   const champMap = Object.fromEntries(champions.map((c) => [c.id, c]));
   const viewerSide = viewer.role === "admin" ? "admin" : getSideForPlayer(match, viewer.name);
-  const allDone = allParticipantsDone(match, drafts);
+  const timerActive = isTimerActive(match);
+  const allDone = match.status === "complete";
 
   const mapPlayer = (p, side) => {
     const d = drafts[p.name] || {};
-    const base = { name: p.name, teamNo: p.teamNo, status: d.status || "idle" };
+    const base = { name: p.name, teamNo: p.teamNo, hasPick: !!d.selected };
 
     if (viewer.role === "admin" || viewerSide === side) {
       base.selected = d.selected ? champMap[d.selected] : null;
-      base.rollCount = d.rollCount || 0;
     } else if (allDone) {
       base.selected = d.selected ? champMap[d.selected] : null;
     } else {
-      base.selected = d.status === "done" ? { hidden: true } : null;
+      base.selected = d.selected ? { hidden: true } : null;
     }
     return base;
   };
 
-  const mapBench = (side) => {
-    const bench = match.bench[side] || [];
+  const mapPoolHero = (heroId, side) => {
+    const owner = getHeroOwner(match, drafts, side, heroId);
+    const hero = champMap[heroId];
+    const entry = { heroId, hero, taken: !!owner };
+
     if (viewer.role === "admin" || viewerSide === side) {
-      return bench.map((b) => ({
-        heroId: b.heroId,
-        hero: champMap[b.heroId],
-        fromPlayer: b.fromPlayer,
-      }));
+      entry.owner = owner;
+      entry.available = !owner;
+    } else if (allDone) {
+      entry.owner = owner;
+      entry.available = !owner;
+    } else {
+      entry.available = !owner;
+      if (owner) entry.owner = { hidden: true };
     }
-    if (allDone) {
-      return bench.map((b) => ({ heroId: b.heroId, hero: champMap[b.heroId], fromPlayer: b.fromPlayer }));
-    }
-    return bench.map(() => ({ hidden: true }));
+    return entry;
+  };
+
+  const mapWaiting = (side) => {
+    const waiting = getWaitingPool(match, drafts, side);
+    return waiting.map((id) => {
+      const hero = champMap[id];
+      if (viewer.role === "admin" || viewerSide === side || allDone) {
+        return { heroId: id, hero };
+      }
+      return { hidden: true };
+    });
   };
 
   const selfDraft = drafts[viewer.name] || null;
-  const selfOffered =
-    selfDraft?.status === "offered" && selfDraft.offered
-      ? selfDraft.offered.map((id) => champMap[id])
-      : [];
+  const selfSide = viewerSide !== "admin" ? viewerSide : null;
+
+  const incomingSwaps = (match.swapRequests || [])
+    .filter((r) => r.to === viewer.name && r.status === "pending")
+    .map((r) => ({
+      id: r.id,
+      from: r.from,
+      fromHero: champMap[r.fromHeroId],
+      toHero: champMap[r.toHeroId],
+    }));
+
+  const outgoingSwaps = (match.swapRequests || [])
+    .filter((r) => r.from === viewer.name && r.status === "pending")
+    .map((r) => ({
+      id: r.id,
+      to: r.to,
+      fromHero: champMap[r.fromHeroId],
+      toHero: champMap[r.toHeroId],
+    }));
 
   return {
     match: {
@@ -186,45 +262,62 @@ function buildPublicState(match, drafts, champions, viewer) {
       labels: match.labels,
       teamA: match.teamA,
       teamB: match.teamB,
+      timerRemaining: getTimerRemaining(match),
+      timerActive,
+      poolSize: POOL_SIZE,
       allDone,
-      pickedCount: (match.pickedGlobally || []).length,
+      pickedCount: Object.values(drafts).filter((d) => d?.selected).length,
+    },
+    teamPools: {
+      blue: (match.teamPools?.blue || []).map((id) => mapPoolHero(id, "blue")),
+      red: (match.teamPools?.red || []).map((id) => mapPoolHero(id, "red")),
+    },
+    waitingPool: {
+      blue: mapWaiting("blue"),
+      red: mapWaiting("red"),
     },
     sides: {
       blue: match.sides.blue.map((p) => mapPlayer(p, "blue")),
       red: match.sides.red.map((p) => mapPlayer(p, "red")),
     },
-    bench: {
-      blue: mapBench("blue"),
-      red: mapBench("red"),
-    },
-    self: viewer.role === "player" && isInMatch(match, viewer.name)
-      ? {
-          status: selfDraft?.status || "idle",
-          offered: selfOffered,
-          selected: selfDraft?.selected ? champMap[selfDraft.selected] : null,
-          rollCount: selfDraft?.rollCount || 0,
-          canRoll: selfDraft?.status !== "done",
-          canPick: selfDraft?.status === "offered",
-          side: viewerSide,
-        }
-      : null,
+    self:
+      viewer.role === "player" && isInMatch(match, viewer.name)
+        ? {
+            selected: selfDraft?.selected ? champMap[selfDraft.selected] : null,
+            side: selfSide,
+            timerActive,
+            canPick: timerActive,
+            waiting: selfSide ? getWaitingPool(match, drafts, selfSide).map((id) => champMap[id]) : [],
+            incomingSwaps,
+            outgoingSwaps,
+          }
+        : null,
+    enemies:
+      selfSide && !allDone
+        ? match.sides[selfSide === "blue" ? "red" : "blue"].map((p) => ({ name: p.name }))
+        : match.sides[selfSide === "blue" ? "red" : "blue"]?.map((p) => mapPlayer(p, selfSide === "blue" ? "red" : "blue")) || [],
     rules: {
-      rollSize: 3,
-      benchFromUnpicked: 2,
-      globalUnique: true,
-      enemyHiddenUntilComplete: true,
+      poolSize: POOL_SIZE,
+      timerSeconds: TIMER_SECONDS,
+      teamUnique: true,
+      enemyHiddenUntilEnd: true,
     },
   };
 }
 
 module.exports = {
+  POOL_SIZE,
+  TIMER_SECONDS,
   buildSides,
   getSideForPlayer,
   isInMatch,
   initPlayerDraft,
-  rollForPlayer,
-  confirmPick,
-  pickFromBench,
-  allParticipantsDone,
+  generateTeamPools,
+  startDraftTimer,
+  pickHero,
+  requestSwap,
+  respondSwap,
+  allParticipantsPicked,
   buildPublicState,
+  expireTimerIfNeeded,
 };

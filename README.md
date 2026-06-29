@@ -21,4 +21,24 @@ python -c "import json; from pathlib import Path; c=json.load(open('data/champio
 
 ## Render 部署
 
-仓库已包含 `render.yaml`。在 [Render Dashboard](https://dashboard.render.com) 新建 **Blueprint** 或 **Static Site**，连接本 GitHub 仓库即可自动部署。
+### 一键部署（推荐）
+
+在项目目录 PowerShell 运行：
+
+```powershell
+.\deploy.ps1
+```
+
+脚本会自动：登录 GitHub → 创建仓库 → 推送代码，并输出 Render 配置步骤。
+
+### 手动部署
+
+1. 将代码推送到 GitHub（仓库需包含 `render.yaml`）
+2. 打开 [Render Blueprints](https://dashboard.render.com/blueprints)
+3. **New Blueprint Instance** → 连接 GitHub 仓库
+4. Render 自动识别 `render.yaml` 并部署静态站点
+
+或手动创建 **Static Site**：
+- Build Command: `echo "no build"`
+- Publish Directory: `.`
+- 环境变量: `SKIP_INSTALL_DEPS=true`

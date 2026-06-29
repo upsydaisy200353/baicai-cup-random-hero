@@ -14,11 +14,11 @@ Write-Host "=== 白菜杯随机英雄 · 部署脚本 ===" -ForegroundColor Cyan
 
 # 1. 检查 gh 登录
 Write-Host "`n[1/4] 检查 GitHub 登录状态..." -ForegroundColor Yellow
-$ghAuth = gh auth status 2>&1
+cmd /c "gh auth status >nul 2>&1"
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "未登录 GitHub，正在打开浏览器登录..." -ForegroundColor Yellow
+    Write-Host "未登录 GitHub，请在弹出的浏览器中完成登录..." -ForegroundColor Yellow
     gh auth login --hostname github.com --git-protocol https --web
-    if ($LASTEXITCODE -ne 0) { throw "GitHub 登录失败" }
+    if ($LASTEXITCODE -ne 0) { throw "GitHub 登录失败，请手动运行: gh auth login" }
 }
 
 if (-not $GitHubUser) {

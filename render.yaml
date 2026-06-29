@@ -1,9 +1,13 @@
 services:
   - type: web
     name: baicai-cup-random-hero
-    runtime: static
-    buildCommand: echo "Static site - no build"
-    staticPublishPath: .
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
-      - key: SKIP_INSTALL_DEPS
-        value: "true"
+      - key: NODE_ENV
+        value: production
+      - key: PLAYER_PASSWORD
+        value: "123456"
+      - key: ADMIN_PASSWORD
+        value: "baicai2024"

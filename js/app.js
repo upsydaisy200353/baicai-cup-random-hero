@@ -1,140 +1,23 @@
-const STORAGE_KEY = "baicai-cup-random-hero-sessions";
+const API = "";
+const TOKEN_KEY = "baicai-cup-token";
 
-/** 6 支队伍，每队 5 人。前 5 队队名=队长名，队长也是队员；第 6 队无单独队长。 */
-const TEAMS = [
-  {
-    no: 1,
-    name: "明月",
-    captain: "明月",
-    skill: 1,
-    members: ["光之巨人(霸哥)", "坚哥", "七元", "cola"],
-  },
-  {
-    no: 2,
-    name: "王姐",
-    captain: "王姐",
-    skill: 2,
-    members: ["d4u", "源神", "花花", "小雨"],
-  },
-  {
-    no: 3,
-    name: "佛系",
-    captain: "佛系",
-    skill: 3,
-    members: ["crazy", "baozi", "衍衍衍珏", "李相赫"],
-  },
-  {
-    no: 4,
-    name: "张神",
-    captain: "张神",
-    skill: 4,
-    members: ["好运耶耶", "日会落", "天天小恶霸", "打牌"],
-  },
-  {
-    no: 5,
-    name: "暧昧",
-    captain: "暧昧",
-    skill: 5,
-    members: ["ud大王", "教头", "本子", "根本吃不胖啊"],
-  },
-  {
-    no: 6,
-    name: "第六队",
-    captain: null,
-    skill: null,
-    members: ["片", "雪乃", "香菇", "安捣", "汤圆"],
-  },
-];
+let currentUser = null;
+let pollTimer = null;
+let championMap = {};
 
-let champions = [...(window.CHAMPIONS || [])];
-let championMap = Object.fromEntries(champions.map((c) => [c.id, c]));
+async function api(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) headers.Authorization = `Bearer ${token}`;
 
-async function loadChampions() {
-  if (champions.length) return champions.length;
-
-  if (window.CHAMPIONS?.length) {
-    champions = window.CHAMPIONS;
-  } else {
-    try {
-      const res = await fetch("data/champions.json");
-      if (res.ok) {
-        const data = await res.json();
-        champions = data.champions.map((c) => ({
-          id: c.id,
-          name_zh: c.name_zh,
-          title_zh: c.title_zh,
-          splash_key: c.splash_key,
-          splash_url: c.splash_url,
-        }));
-      }
-    } catch (err) {
-      console.error("加载英雄数据失败:", err);
-    }
-  }
-
-  championMap = Object.fromEntries(champions.map((c) => [c.id, c]));
-  return champions.length;
-}
-
-function showChampionLoadError() {
-  const banner = document.createElement("div");
-  banner.style.cssText =
-    "position:fixed;top:0;left:0;right:0;z-index:9999;background:#7f1d1d;color:#fff;padding:12px;text-align:center;font-size:14px";
-  banner.textContent =
-    "英雄数据加载失败，请强制刷新页面（Ctrl+F5）。若仍失败，请稍等部署完成后再试。";
-  document.body.prepend(banner);
-}
-
-let sessions = loadSessions();
-let currentSessionId = sessions[0]?.id || null;
-
-function getTeamPlayers(team) {
-  if (team.captain) {
-    return [team.captain, ...team.members];
-  }
-  return [...team.members];
-}
-
-function getTeamLabel(team) {
-  return `${team.no}队 · ${team.name}`;
-}
-
-function loadSessions() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveSessions() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-}
-
-function getSession(id = currentSessionId) {
-  return sessions.find((s) => s.id === id) || null;
-}
-
-function createSession() {
-  const session = {
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    name: `场次 ${sessions.length + 1}`,
-    matchup: { teamA: null, teamB: null },
-    teams: { blue: [], red: [] },
-    teamLabels: { blue: "", red: "" },
-    picks: {},
-    pickOrder: [],
-    currentPickIndex: 0,
-    status: "setup",
-  };
-  sessions.unshift(session);
-  currentSessionId = session.id;
-  saveSessions();
-  return session;
+  const res = await fetch(`${API}${path}`, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "请求失败");
+  return data;
 }
 
 function splashSrc(champ) {
+  if (!champ) return "";
   return `data/splash/${champ.splash_key}_${champ.name_zh}.jpg`;
 }
 
@@ -142,581 +25,385 @@ function heroLabel(champ) {
   return `${champ.name_zh} - ${champ.title_zh}`;
 }
 
-function getTeamByNo(no) {
-  return TEAMS.find((t) => t.no === no) || null;
+function showView(id) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
+  document.getElementById(id)?.classList.remove("hidden");
 }
 
-function applyMatchup(session) {
-  const teamA = getTeamByNo(session.matchup.teamA);
-  const teamB = getTeamByNo(session.matchup.teamB);
+function $(id) {
+  return document.getElementById(id);
+}
 
-  if (!teamA || !teamB || session.matchup.teamA === session.matchup.teamB) {
-    session.teams.blue = [];
-    session.teams.red = [];
-    session.teamLabels.blue = "";
-    session.teamLabels.red = "";
-    return false;
+async function loadChampionMap() {
+  if (window.CHAMPIONS?.length) {
+    window.CHAMPIONS.forEach((c) => { championMap[c.id] = c; });
+    return;
   }
-
-  session.teams.blue = getTeamPlayers(teamA);
-  session.teams.red = getTeamPlayers(teamB);
-  session.teamLabels.blue = getTeamLabel(teamA);
-  session.teamLabels.red = getTeamLabel(teamB);
-  return true;
-}
-
-function getUsedHeroIds(session) {
-  return Object.values(session.picks)
-    .map((p) => p.selected)
-    .filter(Boolean);
-}
-
-function randomHeroes(count, excludeIds) {
-  const pool = champions.filter((c) => !excludeIds.includes(c.id));
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
-}
-
-function buildPickOrder(session) {
-  const order = [];
-  for (let i = 0; i < 5; i++) {
-    if (session.teams.blue[i]) {
-      order.push({ player: session.teams.blue[i], team: "blue" });
-    }
-    if (session.teams.red[i]) {
-      order.push({ player: session.teams.red[i], team: "red" });
-    }
+  try {
+    const { champions } = await api("/api/champions");
+    champions.forEach((c) => { championMap[c.id] = c; });
+  } catch {
+    /* server will provide in state */
   }
-  return order;
 }
 
-function getCurrentPicker(session) {
-  if (!session.pickOrder.length) return null;
-  return session.pickOrder[session.currentPickIndex] || null;
-}
-
-function getPlayerTeamSide(session, player) {
-  if (session.teams.blue.includes(player)) return "blue";
-  if (session.teams.red.includes(player)) return "red";
-  return "";
-}
-
-function renderSessionSelect() {
-  const select = document.getElementById("session-select");
-  const filter = document.getElementById("history-session-filter");
+async function initLogin() {
+  const { teams } = await api("/api/roster");
+  const select = $("login-name");
   select.innerHTML = "";
-  filter.innerHTML = '<option value="">全部场次</option>';
 
-  if (!sessions.length) createSession();
+  const adminOpt = document.createElement("option");
+  adminOpt.value = "管理员";
+  adminOpt.textContent = "管理员";
+  select.appendChild(adminOpt);
 
-  sessions.forEach((s) => {
-    const label = `${s.name} · ${new Date(s.createdAt).toLocaleString("zh-CN")}`;
-    const opt = document.createElement("option");
-    opt.value = s.id;
-    opt.textContent = label;
-    if (s.id === currentSessionId) opt.selected = true;
-    select.appendChild(opt);
-    filter.appendChild(opt.cloneNode(true));
-  });
-}
-
-function renderMatchupSelects() {
-  const session = getSession();
-  const selectA = document.getElementById("matchup-team-a");
-  const selectB = document.getElementById("matchup-team-b");
-
-  const optionsHtml = [
-    '<option value="">— 选择队伍 —</option>',
-    ...TEAMS.map(
-      (t) =>
-        `<option value="${t.no}">${getTeamLabel(t)}${t.skill ? ` · 实力${t.skill}` : ""}</option>`
-    ),
-  ].join("");
-
-  selectA.innerHTML = optionsHtml;
-  selectB.innerHTML = optionsHtml;
-
-  if (session?.matchup.teamA) selectA.value = String(session.matchup.teamA);
-  if (session?.matchup.teamB) selectB.value = String(session.matchup.teamB);
-}
-
-function renderTeamsGrid() {
-  const session = getSession();
-  const container = document.getElementById("teams-grid");
-  container.innerHTML = "";
-
-  TEAMS.forEach((team) => {
-    const players = getTeamPlayers(team);
-    const isA = session?.matchup.teamA === team.no;
-    const isB = session?.matchup.teamB === team.no;
-    const card = document.createElement("div");
-    card.className = `team-card${isA ? " side-a" : ""}${isB ? " side-b" : ""}`;
-
-    const sideBadge = isA
-      ? '<span class="side-badge a">A 队</span>'
-      : isB
-        ? '<span class="side-badge b">B 队</span>'
-        : "";
-
-    card.innerHTML = `
-      <div class="team-card-header">
-        <div>
-          <div class="team-no">${team.no} 队</div>
-          <h3>${team.name}${team.skill ? ` <span class="skill-tag">实力${team.skill}</span>` : ""}</h3>
-        </div>
-        ${sideBadge}
-      </div>
-      <ul class="team-card-players"></ul>
-    `;
-
-    const list = card.querySelector(".team-card-players");
-    players.forEach((name) => {
-      const li = document.createElement("li");
-      const isCaptain = team.captain && name === team.captain;
-      if (isCaptain) li.classList.add("captain");
-      li.textContent = isCaptain ? `${name}（队长）` : name;
-      list.appendChild(li);
+  teams.forEach((team) => {
+    const group = document.createElement("optgroup");
+    group.label = `${team.no}队 · ${team.name}`;
+    team.players.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      group.appendChild(opt);
     });
-
-    container.appendChild(card);
+    select.appendChild(group);
   });
-}
 
-function onMatchupChange() {
-  const session = getSession();
-  if (!session) return;
-
-  const teamA = parseInt(document.getElementById("matchup-team-a").value, 10) || null;
-  const teamB = parseInt(document.getElementById("matchup-team-b").value, 10) || null;
-
-  if (teamA && teamB && teamA === teamB) {
-    alert("请选择两支不同的队伍对阵");
-    return;
-  }
-
-  session.matchup = { teamA, teamB };
-  applyMatchup(session);
-
-  if (session.status === "setup") {
-    session.picks = {};
-    session.pickOrder = [];
-    session.currentPickIndex = 0;
-  }
-
-  saveSessions();
-  renderTeamsGrid();
-  renderDraft();
-}
-
-function randomMatchup() {
-  const session = getSession();
-  if (!session) return;
-
-  const indices = [...TEAMS].sort(() => Math.random() - 0.5).slice(0, 2);
-  session.matchup = { teamA: indices[0].no, teamB: indices[1].no };
-  applyMatchup(session);
-  session.picks = {};
-  session.pickOrder = [];
-  session.currentPickIndex = 0;
-  session.status = "setup";
-  saveSessions();
-  renderMatchupSelects();
-  renderTeamsGrid();
-}
-
-function clearMatchup() {
-  const session = getSession();
-  if (!session) return;
-  if (!confirm("确定清空当前场次的对阵和选英雄记录？")) return;
-
-  session.matchup = { teamA: null, teamB: null };
-  session.teams = { blue: [], red: [] };
-  session.teamLabels = { blue: "", red: "" };
-  session.picks = {};
-  session.pickOrder = [];
-  session.currentPickIndex = 0;
-  session.status = "setup";
-  saveSessions();
-  renderMatchupSelects();
-  renderTeamsGrid();
-  renderDraft();
-}
-
-function startDraft() {
-  const session = getSession();
-  if (!session) return;
-
-  if (!applyMatchup(session)) {
-    alert("请先选择两支不同的队伍对阵（各 5 人）");
-    return;
-  }
-
-  if (session.teams.blue.length !== 5 || session.teams.red.length !== 5) {
-    alert("每队必须为 5 人，请检查队伍配置");
-    return;
-  }
-
-  session.pickOrder = buildPickOrder(session);
-  const firstUnpicked = session.pickOrder.findIndex(
-    (p) => !session.picks[p.player]?.selected
-  );
-  session.currentPickIndex = firstUnpicked >= 0 ? firstUnpicked : 0;
-  session.status = "drafting";
-  saveSessions();
-
-  switchTab("draft");
-  renderDraft();
-}
-
-function teamSideLabel(session, side) {
-  return session.teamLabels?.[side] || (side === "blue" ? "A 队" : "B 队");
-}
-
-function renderDraft() {
-  const session = getSession();
-  const idle = document.getElementById("draft-idle");
-  const active = document.getElementById("draft-active");
-  const orderEl = document.getElementById("pick-order");
-  const usedEl = document.getElementById("used-heroes");
-
-  if (!session || (session.status !== "drafting" && session.status !== "completed")) {
-    idle.classList.remove("hidden");
-    active.classList.add("hidden");
-    orderEl.innerHTML = "";
-    usedEl.innerHTML = "";
-    document.getElementById("used-count").textContent = "0";
-    return;
-  }
-
-  if (session.status === "completed") {
-    idle.classList.add("hidden");
-    active.classList.remove("hidden");
-    document.getElementById("draft-phase-roll").classList.add("hidden");
-    document.getElementById("draft-phase-pick").classList.add("hidden");
-    document.getElementById("draft-phase-done").classList.remove("hidden");
-    renderDraftSummary(session);
-    renderPickOrderSidebar(session, orderEl);
-    renderUsedHeroes(session, usedEl);
-    return;
-  }
-
-  idle.classList.add("hidden");
-  active.classList.remove("hidden");
-  renderPickOrderSidebar(session, orderEl);
-  renderUsedHeroes(session, usedEl);
-
-  const picker = getCurrentPicker(session);
-  const rollPhase = document.getElementById("draft-phase-roll");
-  const pickPhase = document.getElementById("draft-phase-pick");
-  const donePhase = document.getElementById("draft-phase-done");
-
-  if (!picker || session.picks[picker.player]?.selected) {
-    const allDone = session.pickOrder.every(
-      (p) => session.picks[p.player]?.selected
-    );
-    if (allDone) {
-      rollPhase.classList.add("hidden");
-      pickPhase.classList.add("hidden");
-      donePhase.classList.remove("hidden");
-      renderDraftSummary(session);
-      session.status = "completed";
-      saveSessions();
-      return;
+  $("login-form").onsubmit = async (e) => {
+    e.preventDefault();
+    $("login-error").classList.add("hidden");
+    try {
+      const { token, user } = await api("/api/login", {
+        method: "POST",
+        body: JSON.stringify({
+          name: $("login-name").value,
+          password: $("login-password").value,
+        }),
+      });
+      localStorage.setItem(TOKEN_KEY, token);
+      currentUser = user;
+      enterApp();
+    } catch (err) {
+      $("login-error").textContent = err.message;
+      $("login-error").classList.remove("hidden");
     }
-    session.currentPickIndex = session.pickOrder.findIndex(
-      (p) => !session.picks[p.player]?.selected
-    );
-    saveSessions();
-    return renderDraft();
-  }
+  };
+}
 
-  donePhase.classList.add("hidden");
-  document.getElementById("current-player").textContent = picker.player;
-  const badge = document.getElementById("current-team-badge");
-  badge.textContent = teamSideLabel(session, picker.team);
-  badge.className = `team-badge ${picker.team}`;
+async function enterApp() {
+  showView("view-app");
+  $("user-badge").textContent = `${currentUser.name}${currentUser.role === "admin" ? " · 管理员" : ""}`;
+  $("header-subtitle").textContent =
+    currentUser.role === "admin"
+      ? "管理员控制台 · 创建对阵并开启 10 人同时选英雄"
+      : `${currentUser.teamName ? currentUser.teamName + " · " : ""}队员选英雄`;
 
-  const existing = session.picks[picker.player];
-  if (existing?.offered && !existing.selected) {
-    rollPhase.classList.add("hidden");
-    pickPhase.classList.remove("hidden");
-    renderHeroOptions(existing.offered, picker.player);
-  } else if (existing?.selected) {
-    session.currentPickIndex++;
-    saveSessions();
-    renderDraft();
+  if (currentUser.role === "admin") {
+    $("admin-main").classList.remove("hidden");
+    $("player-main").classList.add("hidden");
+    await initAdmin();
   } else {
-    rollPhase.classList.remove("hidden");
-    pickPhase.classList.add("hidden");
-    document.getElementById("btn-roll").disabled = false;
+    $("admin-main").classList.add("hidden");
+    $("player-main").classList.remove("hidden");
+    startPolling();
   }
 }
 
-function renderHeroOptions(offeredIds, playerName) {
-  const container = document.getElementById("hero-options");
-  container.innerHTML = "";
-
-  offeredIds.forEach((id) => {
-    const champ = championMap[id];
-    if (!champ) return;
-
-    const card = document.createElement("div");
-    card.className = "hero-card";
-    card.innerHTML = `
-      <div class="splash-wrap">
-        <img src="${splashSrc(champ)}" alt="${heroLabel(champ)}"
-             onerror="this.src='${champ.splash_url}'">
-      </div>
-      <div class="hero-info">
-        <div class="hero-display">${champ.name_zh} - ${champ.title_zh}</div>
-      </div>
-    `;
-    card.onclick = () => confirmPick(playerName, id, offeredIds);
-    container.appendChild(card);
-  });
+function stopPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
 }
 
-function rollHeroes() {
-  const session = getSession();
-  const picker = getCurrentPicker(session);
-  if (!session || !picker) return;
-
-  if (!champions.length) {
-    alert("英雄数据尚未加载，请刷新页面后重试");
-    return;
-  }
-
-  const used = getUsedHeroIds(session);
-  if (used.length > champions.length - 3) {
-    alert("可用英雄不足，无法继续随机");
-    return;
-  }
-
-  const offered = randomHeroes(3, used).map((c) => c.id);
-  session.picks[picker.player] = {
-    offered,
-    selected: null,
-    rolledAt: new Date().toISOString(),
-  };
-  saveSessions();
-
-  document.getElementById("draft-phase-roll").classList.add("hidden");
-  document.getElementById("draft-phase-pick").classList.remove("hidden");
-  renderHeroOptions(offered, picker.player);
+function startPolling() {
+  stopPolling();
+  refreshState();
+  pollTimer = setInterval(refreshState, 2000);
 }
 
-function confirmPick(playerName, heroId, offeredIds) {
-  const session = getSession();
-  if (!session) return;
-
-  const champ = championMap[heroId];
-  if (!confirm(`确认选择 ${heroLabel(champ)} ？`)) return;
-
-  const used = getUsedHeroIds(session);
-  if (used.includes(heroId)) {
-    alert("该英雄已被其他人选择，请重新随机");
-    delete session.picks[playerName];
-    saveSessions();
-    document.getElementById("draft-phase-roll").classList.remove("hidden");
-    document.getElementById("draft-phase-pick").classList.add("hidden");
-    return;
-  }
-
-  session.picks[playerName] = {
-    offered: offeredIds,
-    selected: heroId,
-    pickedAt: new Date().toISOString(),
-  };
-  session.currentPickIndex++;
-  saveSessions();
-  renderDraft();
-}
-
-function renderPickOrderSidebar(session, orderEl) {
-  orderEl.innerHTML = "";
-  session.pickOrder.forEach((entry, i) => {
-    const li = document.createElement("li");
-    const done = !!session.picks[entry.player]?.selected;
-    if (i === session.currentPickIndex && !done) li.classList.add("current");
-    if (done) li.classList.add("done");
-    li.innerHTML = `
-      <span class="team-dot ${entry.team}"></span>
-      <span>${entry.player}</span>
-    `;
-    li.title = teamSideLabel(session, entry.team);
-    orderEl.appendChild(li);
-  });
-}
-
-function renderUsedHeroes(session, usedEl) {
-  const used = getUsedHeroIds(session);
-  document.getElementById("used-count").textContent = used.length;
-  usedEl.innerHTML = used
-    .map((id) => {
-      const c = championMap[id];
-      return c ? `<span class="used-hero-tag">${c.name_zh}</span>` : "";
-    })
-    .join("");
-}
-
-function renderDraftSummary(session) {
-  const container = document.getElementById("draft-summary");
-  container.innerHTML = "";
-
-  ["blue", "red"].forEach((team) => {
-    const div = document.createElement("div");
-    div.className = `summary-team ${team}`;
-    div.innerHTML = `<h3>${teamSideLabel(session, team)}</h3>`;
-
-    session.teams[team].forEach((name) => {
-      const pick = session.picks[name];
-      const champ = pick?.selected ? championMap[pick.selected] : null;
-      const item = document.createElement("div");
-      item.className = "summary-item";
-      if (champ) {
-        item.innerHTML = `
-          <img src="${splashSrc(champ)}" alt="" onerror="this.src='${champ.splash_url}'">
-          <span class="player">${name}</span>
-          <span class="hero-label">${heroLabel(champ)}</span>
-        `;
-      } else {
-        item.innerHTML = `<span class="player">${name}</span><span>未选择</span>`;
-      }
-      div.appendChild(item);
-    });
-    container.appendChild(div);
-  });
-}
-
-function renderHistory() {
-  const search = document.getElementById("history-search").value.trim().toLowerCase();
-  const sessionFilter = document.getElementById("history-session-filter").value;
-  const container = document.getElementById("history-results");
-  container.innerHTML = "";
-
-  const records = [];
-  sessions.forEach((session) => {
-    if (sessionFilter && session.id !== sessionFilter) return;
-    Object.entries(session.picks).forEach(([player, pick]) => {
-      if (!pick.offered?.length) return;
-      if (search && !player.toLowerCase().includes(search)) return;
-      records.push({ session, player, pick });
-    });
-  });
-
-  if (!records.length) {
-    container.innerHTML = '<div class="empty-state">暂无记录</div>';
-    return;
-  }
-
-  records.forEach(({ session, player, pick }) => {
-    const card = document.createElement("div");
-    card.className = "history-card";
-
-    const side = getPlayerTeamSide(session, player);
-    const teamLabel = side ? teamSideLabel(session, side) : "";
-
-    card.innerHTML = `
-      <div class="history-card-header">
-        <div>
-          <div class="player-name">${player} ${teamLabel ? `<span class="team-badge ${side}">${teamLabel}</span>` : ""}</div>
-          <div class="session-date">${session.name} · ${new Date(session.createdAt).toLocaleString("zh-CN")}</div>
-        </div>
-      </div>
-      <div class="history-pick-row">
-        <div class="history-hero-block">
-          <h4>抽到的 3 个英雄</h4>
-          <div class="offered-list"></div>
-        </div>
-        <div class="history-hero-block">
-          <h4>最终选择</h4>
-          <div class="selected-list"></div>
-        </div>
-      </div>
-    `;
-
-    const offeredList = card.querySelector(".offered-list");
-    pick.offered.forEach((id) => {
-      const champ = championMap[id];
-      if (!champ) return;
-      offeredList.appendChild(createHistoryHeroItem(champ, id === pick.selected));
-    });
-
-    const selectedList = card.querySelector(".selected-list");
-    if (pick.selected && championMap[pick.selected]) {
-      selectedList.appendChild(createHistoryHeroItem(championMap[pick.selected], true));
+async function refreshState() {
+  try {
+    const data = await api("/api/match");
+    if (currentUser.role === "admin") {
+      renderAdminLive(data);
     } else {
-      selectedList.innerHTML = '<span style="color:var(--text-muted)">未确认选择</span>';
+      renderPlayerView(data);
     }
+  } catch (err) {
+    if (err.message.includes("登录")) logout();
+  }
+}
 
-    container.appendChild(card);
+/* ─── 管理员 ─── */
+
+async function initAdmin() {
+  const { teams } = await api("/api/roster");
+  const opts = ['<option value="">— 选择 —</option>']
+    .concat(teams.map((t) => `<option value="${t.no}">${t.no}队 · ${t.name}</option>`))
+    .join("");
+  $("admin-team-a").innerHTML = opts;
+  $("admin-team-b").innerHTML = opts;
+
+  const grid = $("admin-teams-grid");
+  grid.innerHTML = teams
+    .map(
+      (t) => `
+    <div class="team-card">
+      <div class="team-card-header"><div><div class="team-no">${t.no} 队</div><h3>${t.name}</h3></div></div>
+      <ul class="team-card-players">${t.players.map((p) => `<li>${p}</li>`).join("")}</ul>
+    </div>`
+    )
+    .join("");
+
+  $("btn-admin-create").onclick = async () => {
+    const teamA = $("admin-team-a").value;
+    const teamB = $("admin-team-b").value;
+    if (!teamA || !teamB) return alert("请选择两支队伍");
+    try {
+      await api("/api/admin/match", {
+        method: "POST",
+        body: JSON.stringify({ teamA: Number(teamA), teamB: Number(teamB) }),
+      });
+      refreshState();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $("btn-admin-start").onclick = async () => {
+    try {
+      await api("/api/admin/match/start", { method: "POST" });
+      refreshState();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $("btn-admin-reset").onclick = async () => {
+    if (!confirm("确定重置当前场次？")) return;
+    try {
+      await api("/api/admin/match/reset", { method: "POST" });
+      refreshState();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  startPolling();
+}
+
+function renderAdminLive(data) {
+  const statusEl = $("admin-match-status");
+  const board = $("admin-live-board");
+
+  if (!data.match) {
+    statusEl.textContent = "当前无对阵，请选择两队后创建。";
+    board.classList.add("hidden");
+    return;
+  }
+
+  const m = data.match;
+  statusEl.innerHTML = `场次 <strong>${m.labels?.blue || ""}</strong> VS <strong>${m.labels?.red || ""}</strong>
+    · 状态 <strong>${{ lobby: "准备中", drafting: "选英雄中", complete: "已完成" }[m.status]}</strong>
+    · 已选 <strong>${m.pickedCount}/10</strong>`;
+
+  board.classList.remove("hidden");
+  board.innerHTML = renderSummaryHtml(data, true);
+}
+
+/* ─── 队员 ─── */
+
+function renderPlayerView(data) {
+  if (!data.match) {
+    $("player-waiting").classList.remove("hidden");
+    $("player-not-in-match").classList.add("hidden");
+    $("player-draft").classList.add("hidden");
+    return;
+  }
+
+  if (!data.self) {
+    $("player-waiting").classList.add("hidden");
+    $("player-not-in-match").classList.remove("hidden");
+    $("player-draft").classList.add("hidden");
+    return;
+  }
+
+  if (data.match.status === "lobby") {
+    $("player-waiting").classList.remove("hidden");
+    $("player-waiting").querySelector("h2").textContent = "对阵已就绪";
+    $("player-waiting").querySelector("p").textContent =
+      `${data.match.labels?.blue} VS ${data.match.labels?.red} · 等待管理员点击「开始选英雄」`;
+    $("player-not-in-match").classList.add("hidden");
+    $("player-draft").classList.add("hidden");
+    return;
+  }
+
+  $("player-waiting").querySelector("h2").textContent = "等待管理员开始";
+  $("player-waiting").querySelector("p").textContent = "对阵创建并开始选英雄后，你可以与队友同时选英雄。";
+
+  $("player-waiting").classList.add("hidden");
+  $("player-not-in-match").classList.add("hidden");
+  $("player-draft").classList.remove("hidden");
+
+  const selfSide = data.self.side;
+  const teammates = data.sides[selfSide].filter((p) => p.name !== currentUser.name);
+  const enemies = data.sides[selfSide === "blue" ? "red" : "blue"];
+
+  $("teammates-list").innerHTML = teammates
+    .map((p) => renderPlayerRow(p))
+    .join("");
+
+  $("enemies-list").innerHTML = enemies.map((p) => renderPlayerRow(p, true)).join("");
+
+  const bench = data.bench[selfSide] || [];
+  $("team-bench").innerHTML = bench.length
+    ? bench
+        .map((b) => {
+          if (b.hidden) return `<div class="bench-card hidden-card">???</div>`;
+          return `
+        <div class="bench-card" data-id="${b.heroId}">
+          <img src="${splashSrc(b.hero)}" alt="" onerror="this.src='${b.hero?.splash_url || ""}'">
+          <div class="bench-label">${heroLabel(b.hero)}</div>
+          <div class="bench-from">来自 ${b.fromPlayer}</div>
+          ${data.self.canRoll && data.self.status !== "done" ? `<button class="btn btn-secondary btn-sm btn-pick-bench">选用</button>` : ""}
+        </div>`;
+        })
+        .join("")
+    : `<p class="empty-bench">暂无待选英雄，等队友选将后会出现</p>`;
+
+  document.querySelectorAll(".btn-pick-bench").forEach((btn) => {
+    btn.onclick = async (e) => {
+      const card = e.target.closest(".bench-card");
+      const heroId = card?.dataset.id;
+      if (!heroId || !confirm("确认从待选池选用该英雄？")) return;
+      try {
+        await api("/api/draft/pick-bench", { method: "POST", body: JSON.stringify({ heroId }) });
+        refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  });
+
+  const self = data.self;
+  $("self-status").innerHTML = `你的状态：<strong>${{ idle: "未随机", offered: "已随机待确认", done: "已选完" }[self.status]}</strong>
+    · 已随机 ${self.rollCount} 次 · 本方 ${data.match.labels?.[selfSide] || ""}`;
+
+  $("phase-roll").classList.toggle("hidden", self.status === "done" || self.status === "offered");
+  $("phase-pick").classList.toggle("hidden", self.status !== "offered");
+  $("phase-done").classList.toggle("hidden", self.status !== "done" || data.match.allDone);
+  $("phase-complete").classList.toggle("hidden", !data.match.allDone);
+
+  if (self.status === "offered") renderHeroOptions(self.offered);
+  if (self.status === "done" && !data.match.allDone) {
+    $("self-pick-summary").innerHTML = self.selected
+      ? renderHeroCard(self.selected, false)
+      : "";
+  }
+  if (data.match.allDone) {
+    $("final-summary").innerHTML = renderSummaryHtml(data, false);
+  }
+
+  $("btn-roll").onclick = async () => {
+    try {
+      await api("/api/draft/roll", { method: "POST" });
+      refreshState();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+}
+
+function renderPlayerRow(p, isEnemy = false) {
+  let heroHtml = '<span class="muted">未选</span>';
+  if (p.selected?.hidden) heroHtml = '<span class="hidden-pick">???</span>';
+  else if (p.selected) {
+    heroHtml = `<img class="mini-splash" src="${splashSrc(p.selected)}" alt="" onerror="this.src='${p.selected.splash_url || ""}'">
+      <span>${heroLabel(p.selected)}</span>`;
+  } else if (p.status === "done") {
+    heroHtml = '<span class="hidden-pick">???</span>';
+  }
+
+  const statusIcon = p.status === "done" ? "✓" : p.status === "offered" ? "…" : "○";
+  return `<li class="teammate-row ${p.status}"><span class="status-icon">${statusIcon}</span><span class="p-name">${p.name}</span><span class="p-hero">${heroHtml}</span></li>`;
+}
+
+function renderHeroOptions(offered) {
+  const container = $("hero-options");
+  container.innerHTML = offered
+    .map(
+      (champ) => `
+    <div class="hero-card" data-id="${champ.id}">
+      <div class="splash-wrap">
+        <img src="${splashSrc(champ)}" alt="${heroLabel(champ)}" onerror="this.src='${champ.splash_url}'">
+      </div>
+      <div class="hero-info"><div class="hero-display">${heroLabel(champ)}</div></div>
+    </div>`
+    )
+    .join("");
+
+  container.querySelectorAll(".hero-card").forEach((card) => {
+    card.onclick = async () => {
+      const heroId = card.dataset.id;
+      const champ = championMap[heroId] || offered.find((c) => c.id === heroId);
+      if (!confirm(`确认选将 ${heroLabel(champ)} ？\n另外 2 个将进入队友待选池。`)) return;
+      try {
+        await api("/api/draft/pick", { method: "POST", body: JSON.stringify({ heroId }) });
+        refreshState();
+      } catch (e) {
+        alert(e.message);
+      }
+    };
   });
 }
 
-function createHistoryHeroItem(champ, selected) {
-  const div = document.createElement("div");
-  div.className = `history-hero-item${selected ? " selected" : ""}`;
-  div.innerHTML = `
-    <img src="${splashSrc(champ)}" alt="${heroLabel(champ)}"
-         onerror="this.src='${champ.splash_url}'">
-    <div class="label">${heroLabel(champ)}</div>
-  `;
-  return div;
+function renderHeroCard(champ, clickable) {
+  return `
+    <div class="hero-card ${clickable ? "clickable" : ""}">
+      <div class="splash-wrap"><img src="${splashSrc(champ)}" alt="" onerror="this.src='${champ.splash_url}'"></div>
+      <div class="hero-info"><div class="hero-display">${heroLabel(champ)}</div></div>
+    </div>`;
 }
 
-function switchTab(tabName) {
-  document.querySelectorAll(".tab").forEach((t) => {
-    t.classList.toggle("active", t.dataset.tab === tabName);
-  });
-  document.querySelectorAll(".panel").forEach((p) => {
-    p.classList.toggle("active", p.id === `panel-${tabName}`);
-  });
-  if (tabName === "history") renderHistory();
-  if (tabName === "draft") renderDraft();
+function renderSummaryHtml(data, isAdmin) {
+  if (!data.match) return "";
+  const renderSide = (side, label) => `
+    <div class="summary-team ${side}">
+      <h3>${label}</h3>
+      ${data.sides[side]
+        .map((p) => {
+          const sel = p.selected?.hidden ? "???" : p.selected ? heroLabel(p.selected) : "未选";
+          return `<div class="summary-item"><span class="player">${p.name}</span><span class="hero-label">${sel}</span></div>`;
+        })
+        .join("")}
+    </div>`;
+  return `${renderSide("blue", data.match.labels?.blue || "蓝队")}${renderSide("red", data.match.labels?.red || "红队")}`;
 }
 
-function renderSetup() {
-  renderMatchupSelects();
-  renderTeamsGrid();
+function logout() {
+  stopPolling();
+  localStorage.removeItem(TOKEN_KEY);
+  currentUser = null;
+  showView("view-login");
 }
 
 async function init() {
-  const count = await loadChampions();
-  if (!count) showChampionLoadError();
+  await loadChampionMap();
+  await initLogin();
 
-  if (!sessions.length) createSession();
+  $("btn-logout").onclick = logout;
 
-  renderSessionSelect();
-  renderSetup();
-  renderDraft();
-
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.onclick = () => switchTab(tab.dataset.tab);
-  });
-
-  document.getElementById("session-select").onchange = (e) => {
-    currentSessionId = e.target.value;
-    renderSetup();
-    renderDraft();
-  };
-
-  document.getElementById("btn-new-session").onclick = () => {
-    createSession();
-    renderSessionSelect();
-    renderSetup();
-    renderDraft();
-  };
-
-  document.getElementById("matchup-team-a").onchange = onMatchupChange;
-  document.getElementById("matchup-team-b").onchange = onMatchupChange;
-  document.getElementById("btn-random-matchup").onclick = randomMatchup;
-  document.getElementById("btn-clear-matchup").onclick = clearMatchup;
-  document.getElementById("btn-start-draft").onclick = startDraft;
-  document.getElementById("btn-roll").onclick = rollHeroes;
-  document.getElementById("btn-back-setup").onclick = () => switchTab("setup");
-
-  document.getElementById("history-search").oninput = renderHistory;
-  document.getElementById("history-session-filter").onchange = renderHistory;
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) {
+    try {
+      const { user } = await api("/api/me");
+      currentUser = user;
+      enterApp();
+    } catch {
+      logout();
+    }
+  } else {
+    showView("view-login");
+  }
 }
 
 init();

@@ -2,6 +2,7 @@ services:
   - type: web
     name: baicai-cup-random-hero
     runtime: node
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     envVars:

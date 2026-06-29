@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>白菜杯 · 随机英雄</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-inner">
+        <h1>白菜杯 · 随机英雄</h1>
+        <p class="subtitle">6 支队伍各 5 人 · 选择两队对阵 · 每人随机 3 选 1 · 英雄不重复</p>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="setup">组队设置</button>
+        <button class="tab" data-tab="draft">选英雄</button>
+        <button class="tab" data-tab="history">查询记录</button>
+      </nav>
+    </header>
+
+    <main class="main">
+      <!-- 组队设置 -->
+      <section id="panel-setup" class="panel active">
+        <div class="panel-toolbar">
+          <div class="session-info">
+            <label>当前场次</label>
+            <select id="session-select"></select>
+            <button id="btn-new-session" class="btn btn-secondary">新建场次</button>
+          </div>
+          <div class="session-actions">
+            <button id="btn-random-matchup" class="btn btn-secondary">随机对阵</button>
+            <button id="btn-clear-matchup" class="btn btn-ghost">清空对阵</button>
+            <button id="btn-start-draft" class="btn btn-primary">开始选英雄</button>
+          </div>
+        </div>
+
+        <div class="matchup-bar">
+          <div class="matchup-select">
+            <label>A 队</label>
+            <select id="matchup-team-a"></select>
+          </div>
+          <span class="matchup-vs">VS</span>
+          <div class="matchup-select">
+            <label>B 队</label>
+            <select id="matchup-team-b"></select>
+          </div>
+        </div>
+
+        <div class="teams-grid" id="teams-grid"></div>
+      </section>
+
+      <!-- 选英雄 -->
+      <section id="panel-draft" class="panel">
+        <div class="draft-layout">
+          <aside class="draft-sidebar">
+            <h3>选英雄顺序</h3>
+            <ol id="pick-order" class="pick-order"></ol>
+            <div class="used-heroes">
+              <h3>已选英雄 (<span id="used-count">0</span>)</h3>
+              <div id="used-heroes" class="used-heroes-list"></div>
+            </div>
+          </aside>
+
+          <div class="draft-main">
+            <div id="draft-idle" class="draft-idle">
+              <p>请先在「组队设置」中选择两支对阵队伍（各 5 人），然后点击「开始选英雄」。</p>
+            </div>
+
+            <div id="draft-active" class="draft-active hidden">
+              <div class="current-player-bar">
+                <span class="label">当前选英雄</span>
+                <span id="current-player" class="current-player-name"></span>
+                <span id="current-team-badge" class="team-badge"></span>
+              </div>
+
+              <div id="draft-phase-roll" class="draft-phase">
+                <button id="btn-roll" class="btn btn-primary btn-lg">随机 3 个英雄</button>
+              </div>
+
+              <div id="draft-phase-pick" class="draft-phase hidden">
+                <p class="pick-hint">从以下 3 个英雄中选择 1 个（本局不可重复）</p>
+                <div id="hero-options" class="hero-options"></div>
+              </div>
+
+              <div id="draft-phase-done" class="draft-phase hidden">
+                <div class="draft-complete">
+                  <h2>全员选英雄完成！</h2>
+                  <div id="draft-summary" class="draft-summary"></div>
+                  <button id="btn-back-setup" class="btn btn-secondary">返回组队</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 查询记录 -->
+      <section id="panel-history" class="panel">
+        <div class="history-toolbar">
+          <input type="search" id="history-search" placeholder="搜索玩家昵称..." class="search-input">
+          <select id="history-session-filter">
+            <option value="">全部场次</option>
+          </select>
+        </div>
+        <div id="history-results" class="history-results"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/champions-data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

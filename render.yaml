@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: baicai-cup-random-hero
+    runtime: static
+    buildCommand: echo "Static site - no build"
+    staticPublishPath: .
+    envVars:
+      - key: SKIP_INSTALL_DEPS
+        value: "true"

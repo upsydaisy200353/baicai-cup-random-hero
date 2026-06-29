@@ -18,6 +18,9 @@
         <label>密码</label>
         <input type="password" id="login-password" placeholder="默认 123456" autocomplete="current-password">
         <p class="login-hint">队员默认密码 <code>123456</code> · 管理员密码 <code>baicai2024</code></p>
+        <div id="backend-warn" class="backend-warn hidden">
+          后端未连接：本地请 <code>npm start</code>；线上 Render 需使用 <strong>Web Service</strong>（不能用 Static Site）
+        </div>
         <button type="submit" class="btn btn-primary btn-block">登录</button>
       </form>
       <p id="login-error" class="error-text hidden"></p>
@@ -126,6 +129,7 @@
     </main>
   </div>
 
+  <script src="js/roster-data.js" charset="UTF-8"></script>
   <script src="js/champions-data.js" charset="UTF-8"></script>
   <script src="js/app.js" charset="UTF-8"></script>
 </body>

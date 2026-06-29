@@ -5,6 +5,8 @@ let currentUser = null;
 let pollTimer = null;
 let championMap = {};
 
+let backendOnline = false;
+
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem(TOKEN_KEY);
@@ -12,8 +14,49 @@ async function api(path, options = {}) {
 
   const res = await fetch(`${API}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "请求失败");
+  if (!res.ok) {
+    if (res.status === 404 && path.startsWith("/api/")) {
+      throw new Error("后端服务未运行（Render 需使用 Web Service，不能用 Static Site）");
+    }
+    throw new Error(data.error || `请求失败 (${res.status})`);
+  }
   return data;
+}
+
+async function checkBackend() {
+  try {
+    const res = await fetch(`${API}/api/health`);
+    if (!res.ok) throw new Error();
+    backendOnline = true;
+    $("backend-warn")?.classList.add("hidden");
+    return true;
+  } catch {
+    backendOnline = false;
+    $("backend-warn")?.classList.remove("hidden");
+    return false;
+  }
+}
+
+function fillLoginSelect(teams) {
+  const select = $("login-name");
+  select.innerHTML = "";
+
+  const adminOpt = document.createElement("option");
+  adminOpt.value = "管理员";
+  adminOpt.textContent = "管理员";
+  select.appendChild(adminOpt);
+
+  teams.forEach((team) => {
+    const group = document.createElement("optgroup");
+    group.label = `${team.no}队 · ${team.name}`;
+    team.players.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      group.appendChild(opt);
+    });
+    select.appendChild(group);
+  });
 }
 
 function splashSrc(champ) {
@@ -48,30 +91,27 @@ async function loadChampionMap() {
 }
 
 async function initLogin() {
-  const { teams } = await api("/api/roster");
-  const select = $("login-name");
-  select.innerHTML = "";
-
-  const adminOpt = document.createElement("option");
-  adminOpt.value = "管理员";
-  adminOpt.textContent = "管理员";
-  select.appendChild(adminOpt);
-
-  teams.forEach((team) => {
-    const group = document.createElement("optgroup");
-    group.label = `${team.no}队 · ${team.name}`;
-    team.players.forEach((name) => {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      group.appendChild(opt);
-    });
-    select.appendChild(group);
-  });
+  let teams;
+  try {
+    ({ teams } = await api("/api/roster"));
+  } catch {
+    teams = window.ROSTER_TEAMS || [];
+  }
+  fillLoginSelect(teams);
+  await checkBackend();
 
   $("login-form").onsubmit = async (e) => {
     e.preventDefault();
     $("login-error").classList.add("hidden");
+    if (!backendOnline) {
+      const ok = await checkBackend();
+      if (!ok) {
+        $("login-error").textContent =
+          "无法连接后端。本地请运行 npm start；Render 请改为 Web Service 部署（非 Static Site）。";
+        $("login-error").classList.remove("hidden");
+        return;
+      }
+    }
     try {
       const { token, user } = await api("/api/login", {
         method: "POST",

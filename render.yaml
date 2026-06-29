@@ -12,3 +12,5 @@ services:
         value: "123456"
       - key: ADMIN_PASSWORD
         value: "baicai2024"
+      - key: SESSION_SECRET
+        value: "baicai-cup-v2-secret-key"

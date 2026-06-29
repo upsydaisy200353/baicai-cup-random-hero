@@ -15,6 +15,7 @@ async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 401) throw new Error("登录已过期，请重新登录");
     if (res.status === 404 && path.startsWith("/api/")) {
       throw new Error("后端服务未运行（Render 需使用 Web Service，不能用 Static Site）");
     }
@@ -78,15 +79,16 @@ function $(id) {
 }
 
 async function loadChampionMap() {
+  try {
+    const res = await fetch(`${API}/api/champions`);
+    if (res.ok) {
+      const { champions } = await res.json();
+      champions.forEach((c) => { championMap[c.id] = c; });
+      return;
+    }
+  } catch { /* fallback below */ }
   if (window.CHAMPIONS?.length) {
     window.CHAMPIONS.forEach((c) => { championMap[c.id] = c; });
-    return;
-  }
-  try {
-    const { champions } = await api("/api/champions");
-    champions.forEach((c) => { championMap[c.id] = c; });
-  } catch {
-    /* server will provide in state */
   }
 }
 
@@ -169,7 +171,10 @@ async function refreshState() {
       renderPlayerView(data);
     }
   } catch (err) {
-    if (err.message.includes("登录")) logout();
+    if (err.message.includes("登录") || err.message.includes("401")) {
+      alert("登录已过期，请重新登录");
+      logout();
+    }
   }
 }
 

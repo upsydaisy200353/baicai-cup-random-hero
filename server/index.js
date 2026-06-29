@@ -234,9 +234,19 @@ app.get("/api/history", auth, (req, res) => {
   res.json({ history: state.history });
 });
 
-app.use(express.static(ROOT));
+app.use(
+  express.static(ROOT, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".js")) {
+        res.setHeader("Content-Type", "application/javascript; charset=UTF-8");
+      }
+    },
+  })
+);
 
-app.get("*", (_req, res) => {
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  if (path.extname(req.path)) return res.status(404).send("Not found");
   res.sendFile(path.join(ROOT, "index.html"));
 });
 

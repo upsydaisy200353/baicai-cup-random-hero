@@ -1,0 +1,15 @@
+---
+description: 白菜杯随机英雄项目：每次修改后更新 README 并推送 GitHub
+alwaysApply: true
+---
+
+# 项目工作流
+
+对本仓库（白菜杯 · 随机英雄）的每一次功能修改、修复或配置变更，完成后必须：
+
+1. **更新 `README.md`**，使文档与当前行为一致（功能、流程、部署说明等）
+2. **提交并推送到 GitHub** `main` 分支（`https://github.com/upsydaisy200353/baicai-cup-random-hero`）
+
+仅改注释、且不影响对外行为时，可酌情省略 README 更新，但仍应推送代码。
+
+提交信息应简洁说明「做了什么、为什么」；不要跳过推送，Render 依赖 GitHub 自动部署。

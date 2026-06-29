@@ -266,7 +266,44 @@ function renderAdminLive(data) {
   }
 
   board.classList.remove("hidden");
-  board.innerHTML = renderSummaryHtml(data, true);
+  board.innerHTML = renderAdminBoard(data);
+}
+
+function renderAdminBoard(data) {
+  const renderSide = (side, label) => {
+    const pool = data.teamPools[side] || [];
+    const players = data.sides[side] || [];
+    return `
+      <div class="admin-team-block ${side}">
+        <h3>${label}</h3>
+        <h4>英雄池</h4>
+        <div class="admin-pool-grid">
+          ${pool
+            .map((entry) => {
+              if (!entry.hero) return "";
+              const owner = entry.owner && typeof entry.owner === "string" ? entry.owner : entry.taken ? "已选" : "";
+              return `
+            <div class="admin-pool-card ${entry.taken ? "taken" : ""}" title="${heroLabel(entry.hero)}">
+              <img src="${splashSrc(entry.hero)}" alt="" onerror="this.src='${entry.hero.splash_url || ""}'">
+              <span class="admin-pool-name">${entry.hero.name_zh}</span>
+              ${owner ? `<span class="admin-pool-owner">${owner}</span>` : ""}
+            </div>`;
+            })
+            .join("")}
+        </div>
+        <h4>队员选将</h4>
+        <ul class="admin-picks-list">
+          ${players
+            .map((p) => {
+              const sel = p.selected ? heroLabel(p.selected) : "未选";
+              return `<li><span class="player">${p.name}</span><span class="hero-label">${sel}</span></li>`;
+            })
+            .join("")}
+        </ul>
+      </div>`;
+  };
+
+  return `${renderSide("blue", data.match.labels?.blue || "蓝队")}${renderSide("red", data.match.labels?.red || "红队")}`;
 }
 
 /* ─── 队员 ─── */
@@ -317,12 +354,8 @@ function renderPlayerView(data) {
   renderIncomingSwaps(self.incomingSwaps || []);
 
   const teammates = data.sides[selfSide].filter((p) => p.name !== currentUser.name);
-  $("teammates-list").innerHTML = teammates.map((p) => renderPlayerRow(p)).join("");
-
-  const enemySide = selfSide === "blue" ? "red" : "blue";
-  const enemies = data.sides[enemySide];
-  $("enemies-list").innerHTML = enemies
-    .map((p) => renderEnemyRow(p, timerActive, self, self.outgoingSwaps || []))
+  $("teammates-list").innerHTML = teammates
+    .map((p) => renderTeammateRow(p, timerActive, self, self.outgoingSwaps || []))
     .join("");
 
   bindSwapButtons();
@@ -330,7 +363,7 @@ function renderPlayerView(data) {
   const waiting = self.waiting || [];
   $("waiting-pool").innerHTML = waiting.length
     ? waiting
-        .map((hero) => renderPoolCard(hero, { available: true, canPick: timerActive }))
+        .map((hero) => renderPoolCard(hero, { available: true, canPick: timerActive, compact: true }))
         .join("")
     : `<p class="empty-bench">待选池已空</p>`;
   bindPickHandlers($("waiting-pool"));
@@ -411,6 +444,31 @@ function renderIncomingSwaps(swaps) {
   });
 }
 
+function renderTeammateRow(p, timerActive, self, outgoingSwaps) {
+  let heroHtml = '<span class="muted">未选</span>';
+  if (p.selected) {
+    heroHtml = `<img class="mini-splash" src="${splashSrc(p.selected)}" alt="" onerror="this.src='${p.selected.splash_url || ""}'">
+      <span>${heroLabel(p.selected)}</span>`;
+  }
+
+  const pending = outgoingSwaps.some((s) => s.to === p.name);
+  const canSwap = timerActive && self.selected && p.hasPick && !pending;
+
+  const statusIcon = p.hasPick ? "✓" : "○";
+  return `<li class="teammate-row ${p.hasPick ? "done" : ""}">
+    <span class="status-icon">${statusIcon}</span>
+    <span class="p-name">${p.name}</span>
+    <span class="p-hero">${heroHtml}</span>
+    ${
+      pending
+        ? '<span class="swap-pending">等待回应</span>'
+        : canSwap
+          ? `<button class="btn btn-secondary btn-sm btn-swap" data-to="${p.name}">交换</button>`
+          : ""
+    }
+  </li>`;
+}
+
 function renderPlayerRow(p) {
   let heroHtml = '<span class="muted">未选</span>';
   if (p.selected?.hidden) heroHtml = '<span class="hidden-pick">???</span>';
@@ -427,35 +485,11 @@ function renderPlayerRow(p) {
   </li>`;
 }
 
-function renderEnemyRow(p, timerActive, self, outgoingSwaps) {
-  let heroHtml = '<span class="muted">未选</span>';
-  if (p.selected?.hidden) heroHtml = '<span class="hidden-pick">???</span>';
-  else if (p.selected) {
-    heroHtml = `<img class="mini-splash" src="${splashSrc(p.selected)}" alt="" onerror="this.src='${p.selected.splash_url || ""}'">
-      <span>${heroLabel(p.selected)}</span>`;
-  }
-
-  const pending = outgoingSwaps.some((s) => s.to === p.name);
-  const canSwap = timerActive && self.selected && p.hasPick && !pending;
-
-  return `<li class="teammate-row enemy-row">
-    <span class="p-name">${p.name}</span>
-    <span class="p-hero">${heroHtml}</span>
-    ${
-      pending
-        ? '<span class="swap-pending">等待回应</span>'
-        : canSwap
-          ? `<button class="btn btn-secondary btn-sm btn-swap" data-to="${p.name}">交换</button>`
-          : ""
-    }
-  </li>`;
-}
-
 function bindSwapButtons() {
   document.querySelectorAll(".btn-swap").forEach((btn) => {
     btn.onclick = async () => {
       const toPlayer = btn.dataset.to;
-      if (!toPlayer || !confirm(`向 ${toPlayer} 发起英雄交换？需对方同意。`)) return;
+      if (!toPlayer || !confirm(`向队友 ${toPlayer} 发起英雄交换？需对方同意。`)) return;
       try {
         await api("/api/draft/swap-request", {
           method: "POST",
@@ -480,20 +514,24 @@ function renderPoolEntry(entry, timerActive) {
     taken: entry.taken,
     owner: entry.owner,
     heroId: entry.heroId,
+    compact: true,
   });
 }
 
 function renderPoolCard(hero, opts = {}) {
-  const { available, taken, owner, heroId, canPick } = opts;
+  const { available, taken, owner, heroId, canPick, compact } = opts;
   const id = heroId || hero?.id;
   const cls = ["pool-card"];
+  if (compact) cls.push("compact");
   if (taken) cls.push("taken");
   if (available || canPick) cls.push("clickable");
 
+  const label = compact ? hero.name_zh : heroLabel(hero);
+
   return `
-    <div class="${cls.join(" ")}" data-id="${id}">
+    <div class="${cls.join(" ")}" data-id="${id}" title="${heroLabel(hero)}">
       <img src="${splashSrc(hero)}" alt="" onerror="this.src='${hero?.splash_url || ""}'">
-      <div class="pool-label">${heroLabel(hero)}</div>
+      <div class="pool-label">${label}</div>
       ${owner && typeof owner === "string" ? `<div class="pool-owner">${owner}</div>` : ""}
       ${taken && !owner ? '<div class="pool-owner">已选</div>' : ""}
     </div>`;

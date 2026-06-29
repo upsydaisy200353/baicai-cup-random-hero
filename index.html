@@ -53,7 +53,7 @@
         <div class="teams-grid" id="admin-teams-grid"></div>
         <div id="admin-match-status" class="status-bar"></div>
         <div id="admin-timer" class="timer-bar hidden"></div>
-        <div id="admin-live-board" class="live-board hidden"></div>
+        <div id="admin-live-board" class="admin-draft-board hidden"></div>
       </section>
     </main>
 
@@ -77,24 +77,22 @@
 
         <div class="draft-layout">
           <aside class="draft-sidebar">
-            <h3>本方队友</h3>
+            <h3>本方队友 <span class="hint">（可发起交换）</span></h3>
             <ul id="teammates-list" class="teammates-list"></ul>
-            <h3>敌方选手 <span class="hint">（可发起交换）</span></h3>
-            <ul id="enemies-list" class="teammates-list enemies"></ul>
             <h3>待选池 <span class="hint">（未被选用的英雄）</span></h3>
-            <div id="waiting-pool" class="bench-grid"></div>
+            <div id="waiting-pool" class="bench-grid compact"></div>
           </aside>
 
           <div class="draft-main">
             <div class="rules-box">
-              <strong>规则：</strong>每队 15 英雄不重复 · 从本方池内选将 · 120 秒内可替换 · 与敌方协商交换
+              <strong>规则：</strong>每队 15 英雄不重复 · 从本方池内选将 · 120 秒内可替换 · 与队友协商交换 · 敌方选将倒计时结束后公开
             </div>
             <div id="my-pick-section" class="my-pick-section hidden">
               <h3>我的英雄</h3>
               <div id="my-pick-card"></div>
             </div>
             <h3>本方英雄池（15）</h3>
-            <div id="team-pool" class="hero-pool-grid"></div>
+            <div id="team-pool" class="hero-pool-grid compact"></div>
             <div id="phase-complete" class="draft-phase hidden">
               <h2>选将结束</h2>
               <div id="final-summary" class="draft-summary"></div>

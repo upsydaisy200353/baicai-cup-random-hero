@@ -1133,6 +1133,129 @@ select, .search-input {
   margin-bottom: 24px;
 }
 
+.hero-pool-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+}
+
+.bench-grid.compact {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.bench-grid.compact .pool-card.compact .pool-label {
+  font-size: 0.65rem;
+  padding: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pool-card.compact img {
+  aspect-ratio: 1;
+}
+
+.hero-pool-grid.compact .pool-card.compact .pool-label {
+  font-size: 0.68rem;
+  padding: 4px 6px;
+}
+
+.admin-draft-board {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.admin-team-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.admin-team-block.blue { border-top: 3px solid var(--blue); }
+.admin-team-block.red { border-top: 3px solid var(--red); }
+
+.admin-team-block h3 {
+  color: var(--gold);
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.admin-team-block h4 {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 12px 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-pool-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.admin-pool-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: center;
+}
+
+.admin-pool-card.taken {
+  opacity: 0.75;
+  border-color: var(--gold-dim);
+}
+
+.admin-pool-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+
+.admin-pool-name {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--gold);
+  padding: 2px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-pool-owner {
+  display: block;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  padding: 0 4px 4px;
+}
+
+.admin-picks-list {
+  list-style: none;
+}
+
+.admin-picks-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+
+.admin-picks-list .player { font-weight: 500; }
+.admin-picks-list .hero-label { color: var(--gold); font-size: 0.8rem; }
+
 .pool-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1195,5 +1318,8 @@ select, .search-input {
 
 @media (max-width: 640px) {
   .live-board { grid-template-columns: 1fr; }
-  .hero-pool-grid { grid-template-columns: repeat(2, 1fr); }
+  .admin-draft-board { grid-template-columns: 1fr; }
+  .hero-pool-grid { grid-template-columns: repeat(3, 1fr); }
+  .hero-pool-grid.compact { grid-template-columns: repeat(4, 1fr); }
+  .admin-pool-grid { grid-template-columns: repeat(4, 1fr); }
 }

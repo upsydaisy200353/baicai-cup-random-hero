@@ -121,12 +121,13 @@ function requestSwap(match, drafts, fromPlayer, toPlayer) {
   const fromSide = getSideForPlayer(match, fromPlayer);
   const toSide = getSideForPlayer(match, toPlayer);
   if (!fromSide || !toSide) return { error: "玩家不在本场名单中" };
-  if (fromSide === toSide) return { error: "只能与敌方选手交换英雄" };
+  if (fromSide !== toSide) return { error: "只能与队友交换英雄" };
 
   const fromDraft = drafts[fromPlayer];
   const toDraft = drafts[toPlayer];
   if (!fromDraft?.selected) return { error: "你还未选择英雄" };
   if (!toDraft?.selected) return { error: "对方还未选择英雄" };
+  if (fromPlayer === toPlayer) return { error: "不能与自己交换" };
 
   const pending = (match.swapRequests || []).find(
     (r) => r.status === "pending" && r.from === fromPlayer && r.to === toPlayer
@@ -236,6 +237,7 @@ function buildPublicState(match, drafts, champions, viewer) {
 
   const selfDraft = drafts[viewer.name] || null;
   const selfSide = viewerSide !== "admin" ? viewerSide : null;
+  const hideEnemy = viewer.role !== "admin" && !allDone && selfSide;
 
   const incomingSwaps = (match.swapRequests || [])
     .filter((r) => r.to === viewer.name && r.status === "pending")
@@ -269,16 +271,16 @@ function buildPublicState(match, drafts, champions, viewer) {
       pickedCount: Object.values(drafts).filter((d) => d?.selected).length,
     },
     teamPools: {
-      blue: (match.teamPools?.blue || []).map((id) => mapPoolHero(id, "blue")),
-      red: (match.teamPools?.red || []).map((id) => mapPoolHero(id, "red")),
+      blue: hideEnemy && selfSide !== "blue" ? [] : (match.teamPools?.blue || []).map((id) => mapPoolHero(id, "blue")),
+      red: hideEnemy && selfSide !== "red" ? [] : (match.teamPools?.red || []).map((id) => mapPoolHero(id, "red")),
     },
     waitingPool: {
-      blue: mapWaiting("blue"),
-      red: mapWaiting("red"),
+      blue: hideEnemy && selfSide !== "blue" ? [] : mapWaiting("blue"),
+      red: hideEnemy && selfSide !== "red" ? [] : mapWaiting("red"),
     },
     sides: {
-      blue: match.sides.blue.map((p) => mapPlayer(p, "blue")),
-      red: match.sides.red.map((p) => mapPlayer(p, "red")),
+      blue: hideEnemy && selfSide !== "blue" ? [] : match.sides.blue.map((p) => mapPlayer(p, "blue")),
+      red: hideEnemy && selfSide !== "red" ? [] : match.sides.red.map((p) => mapPlayer(p, "red")),
     },
     self:
       viewer.role === "player" && isInMatch(match, viewer.name)
@@ -292,14 +294,11 @@ function buildPublicState(match, drafts, champions, viewer) {
             outgoingSwaps,
           }
         : null,
-    enemies:
-      selfSide && !allDone
-        ? match.sides[selfSide === "blue" ? "red" : "blue"].map((p) => ({ name: p.name }))
-        : match.sides[selfSide === "blue" ? "red" : "blue"]?.map((p) => mapPlayer(p, selfSide === "blue" ? "red" : "blue")) || [],
     rules: {
       poolSize: POOL_SIZE,
       timerSeconds: TIMER_SECONDS,
       teamUnique: true,
+      teammateSwap: true,
       enemyHiddenUntilEnd: true,
     },
   };
